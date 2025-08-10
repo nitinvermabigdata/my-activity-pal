@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
+import "../types/speech.d.ts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, Bot, User } from "lucide-react";
+import { Send, Bot, User, Mic, MicOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface Message {
@@ -20,15 +21,65 @@ export const ChatInterface = ({ isActive, onContentChange }: ChatInterfaceProps)
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      content: "Hello! I'm your AI assistant. I can help you with your meetings, Jira tickets, and daily activities. What would you like to know?",
+      content: "Hello! I'm your AI assistant. I can help you with your meetings, Jira tickets, and daily activities. You can type or speak to me! What would you like to know?",
       sender: 'ai',
       timestamp: new Date()
     }
   ]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+
+  // Initialize speech recognition
+  useEffect(() => {
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognitionInstance = new SpeechRecognition();
+      
+      recognitionInstance.continuous = false;
+      recognitionInstance.interimResults = true;
+      recognitionInstance.lang = 'en-US';
+
+      recognitionInstance.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognitionInstance.onresult = (event) => {
+        const transcript = Array.from(event.results)
+          .map(result => result[0])
+          .map(result => result.transcript)
+          .join('');
+
+        setInputValue(transcript);
+
+        // If the result is final, send the message
+        if (event.results[event.results.length - 1].isFinal) {
+          setIsListening(false);
+          if (transcript.trim()) {
+            handleSendMessage(transcript);
+          }
+        }
+      };
+
+      recognitionInstance.onerror = (event) => {
+        setIsListening(false);
+        toast({
+          title: "Speech Recognition Error",
+          description: "Could not recognize speech. Please try again.",
+          variant: "destructive"
+        });
+      };
+
+      recognitionInstance.onend = () => {
+        setIsListening(false);
+      };
+
+      setRecognition(recognitionInstance);
+    }
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -53,7 +104,7 @@ export const ChatInterface = ({ isActive, onContentChange }: ChatInterfaceProps)
         aiResponse = "Here are your current Jira tickets and their status. I can help you prioritize and manage them.";
         contentType = 'jira';
       } else {
-        aiResponse = "I'm here to help! You can ask me about your meetings, Jira tickets, or any other daily activities. Just let me know what you need assistance with.";
+        aiResponse = "I'm here to help! You can ask me about your meetings, Jira tickets, or any other daily activities. Feel free to type or speak to me.";
       }
 
       const newMessage: Message = {
@@ -69,8 +120,9 @@ export const ChatInterface = ({ isActive, onContentChange }: ChatInterfaceProps)
     }, 1500);
   };
 
-  const handleSendMessage = () => {
-    if (!inputValue.trim()) return;
+  const handleSendMessage = (messageText?: string) => {
+    const textToSend = messageText || inputValue;
+    if (!textToSend.trim()) return;
 
     if (!isActive) {
       toast({
@@ -83,14 +135,50 @@ export const ChatInterface = ({ isActive, onContentChange }: ChatInterfaceProps)
 
     const newMessage: Message = {
       id: Date.now().toString(),
-      content: inputValue,
+      content: textToSend,
       sender: 'user',
       timestamp: new Date()
     };
 
     setMessages(prev => [...prev, newMessage]);
-    simulateAIResponse(inputValue);
+    simulateAIResponse(textToSend);
     setInputValue("");
+  };
+
+  const startListening = () => {
+    if (!isActive) {
+      toast({
+        title: "Avatar not active",
+        description: "Please activate the AI assistant first",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (!recognition) {
+      toast({
+        title: "Speech not supported",
+        description: "Your browser doesn't support speech recognition",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      recognition.start();
+    } catch (error) {
+      toast({
+        title: "Speech Recognition Error",
+        description: "Could not start speech recognition",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const stopListening = () => {
+    if (recognition && isListening) {
+      recognition.stop();
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -165,18 +253,49 @@ export const ChatInterface = ({ isActive, onContentChange }: ChatInterfaceProps)
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder={isActive ? "Ask me about your meetings, Jira tickets..." : "Activate the assistant first"}
-            className="flex-1 glass-button border-border/40 text-text-primary placeholder:text-text-muted"
-            disabled={!isActive}
+            placeholder={
+              isListening 
+                ? "Listening... Speak now" 
+                : isActive 
+                  ? "Ask me about your meetings, Jira tickets... or click mic to speak" 
+                  : "Activate the assistant first"
+            }
+            className={`flex-1 glass-button border-border/40 text-text-primary placeholder:text-text-muted ${
+              isListening ? 'border-green-400 bg-green-400/10' : ''
+            }`}
+            disabled={!isActive || isListening}
           />
+          
+          {/* Voice Input Button */}
           <Button
-            onClick={handleSendMessage}
-            disabled={!inputValue.trim() || !isActive}
+            onClick={isListening ? stopListening : startListening}
+            disabled={!isActive}
+            className={`glass-button glow-effect px-4 ${
+              isListening 
+                ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' 
+                : 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700'
+            }`}
+          >
+            {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+          </Button>
+          
+          {/* Send Button */}
+          <Button
+            onClick={() => handleSendMessage()}
+            disabled={!inputValue.trim() || !isActive || isListening}
             className="glass-button glow-effect px-4"
           >
             <Send size={18} />
           </Button>
         </div>
+        
+        {/* Voice Status */}
+        {isListening && (
+          <div className="mt-2 flex items-center justify-center space-x-2 text-green-400 text-sm fade-in">
+            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+            <span>Listening for your voice...</span>
+          </div>
+        )}
       </div>
     </div>
   );

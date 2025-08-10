@@ -1,0 +1,14 @@
+{
+  "appId": "app.lovable.8b0724266e7447be94216582acab47e9",
+  "appName": "my-activity-pal",
+  "webDir": "dist",
+  "server": {
+    "url": "https://8b072426-6e74-47be-9421-6582acab47e9.lovableproject.com?forceHideBadge=true",
+    "cleartext": true
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}
